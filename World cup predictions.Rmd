@@ -5,21 +5,18 @@ output: html_notebook
 
 
 ```{r}
-if (!require("pacman")) install.packages("pacman")
-pacman::p_load(
-  dplyr,            # Data munging functions
-  zoo,              # Feature engineering rolling aggregates
-  data.table,       # Feature engineering
-  ggplot2,          # Graphics
-  scales,           # Time formatted axis
-  readr,            # Reading input files
-  stringr,          # String functions
-  Amelia,           # missing data evaluation
-  randomForest,     # Random forests
-  corrplot,         # correlation plots
-  Metrics,          # Eval metrics for ML
-  vcd               # Visualizing discrete distributions
-)
+library(dplyr)
+library(zoo)
+library(data.table)
+library(ggplot2)
+library(scales)
+library(readr)
+library(stringr)
+library(Amelia)
+library(randomForest)
+library(corrplot)
+library(Metrics)
+library(vcd)
 ```
 
 
@@ -44,10 +41,19 @@ matches %>%
     geom_bar(aes(fill=CupName)) +
     theme(legend.position = "bottom", legend.direction = "vertical") + ggtitle("Matches played by Year")
 ```
+
+```{r}
+matches %>% filter(CupName != "Friendly") %>%
+  ggplot(mapping = aes(year(date))) +
+    geom_bar(aes(fill=CupName)) +
+    theme(legend.position = "bottom", legend.direction = "vertical") + ggtitle("Matches played by Year without friendly game")
+```
+
 Let's plot the missing values in our dataset 
 ```{r}
 Amelia::missmap(matches, main = "Missing values")
 ```
+We switch the `team1`and `team2` because the `team1` had a lot of chance to win because it's the home team
 ```{r}
 summary(matches$team1Score - matches$team2Score)
 set.seed(4342)
@@ -82,7 +88,7 @@ matches <- bind_rows(
   dplyr::arrange(date) %>%
   dplyr::select(-c(switch))
 ```
-Let's add some additional features 
+Let's add some additional features, We start by defining the venue if the first team or the second team or a neutrak venue. The second step is to define the cup name, we introduce logical variables to specify the cup name (Friendly, Qual, Final, Confederations Cup)
 ```{r}
 matches$team1Home <- mapply(grepl, pattern = matches$team1Text, x=matches$venue, MoreArgs = list(fixed=TRUE, ignore.case= FALSE))
 matches$team2Home <- mapply(grepl, pattern = matches$team2Text, x=matches$venue, MoreArgs = list(fixed=TRUE, ignore.case= FALSE))
@@ -105,20 +111,13 @@ matches$finaltourn[matches$CupName %like% "Confederations Cup"] <- TRUE
 head(matches)
 ```
 
-At this point, we're going to eliminate friendly matches from the dataset.
+At this point, we're going to eliminate friendly matches from the dataset.This decision is based on the observation that, with few exceptions, the main objective for a team playing a friendly is not to win it, but to evaluate its own players and tactics.
 
-This decision is based on the observation that, with few exceptions, the main objective for a team playing a friendly is not to win it, but to evaluate its own players and tactics.
 
-For this reason it's not uncommon for friendlies to allow an unlimited number of substitutions, and for a team to roll out its entire squad during a friendly game.
-
-If you'd like to experiment with keeping friendlies in the dataset, you can comment out the line below.
 ```{r}
 matches <- matches %>% dplyr::filter(friendly == FALSE)
 ```
 Up until this point we've only looked at individual matches. However, what we really need is to look at each team's performance over its history.
-
-When we build our predictive model, we'd like to supply it with as many features about each of the teams about to be involved in a match. For that, we need to have a team-centric dataset with historical data.
-
 Building this dataset is simple: take each observation in matches - which has the form "team1 vs team2" - and produce two separate observations of the form "team1 played against team2" and "team2 played against team1" respectively.
 ```{r}
 # transform the matches table into a team performance table, where each team being 
@@ -170,6 +169,7 @@ In order to capture some information about how good each team is, let's define a
 
 `winpercentage = (wins + 0.5 * draws) / games played`
 
+This formula is very similar to FIFA formula to calculate the national team ranking. 
 Then, let's plot that for each team which has played a significant number of games.
 ```{r}
 # Out of the teams who have played at least 100 games, what are the winning percentages for each of those teams?
@@ -198,17 +198,11 @@ plot_winpercentage <- function(teamperf, mingames) {
 
 plot_winpercentage(teamperf, 100)
 ```
-Straight away we can see that there are some potential issues with our dataset.
 
-For one thing, some countries have ceased to exist, either because they dissolved into multiple countries - for example the Soviet Union (URS), Yugoslavia (YUG) or Czechoslovakia (TCH), or because they united into one country - like it was the case with the German reunification of 1990. In the latter case, West Germany (FRG) and East Germany (GDR) unified into a single Germany (GER).
+For one thing, some countries have ceased to exist, either because they dissolved into multiple countries - for example the Soviet Union (URS), Yugoslavia (YUG) or Czechoslovakia (TCH), or because they united into one country - like it was the case with the German reunification of 1990. In the latter case, West Germany (FRG) and East Germany (GDR) unified into a single Germany (GER). Here the most impacted country is Germany.
 
-Another case was when a country would rename itself - for example from Zaire (ZAI) to Democratic Republic of the Congo (COD).
 
-Here is a complete list of all the FIFA obsolete country codes which stood for countries and territories that no longer exist.
-
-From our perspective, for the purposes of continuity we would like to consider the new countries as successors to (part of) the old ones, because it will allow us to take past performance into account instead of starting from scratch. The process is not 100% straightforward - for example, which of the six countries should we consider as a succesor to Yugoslavia? - but we will undergo a best effort approach.
 ```{r}
-
 # transform old country codes into new ones.
 countryCodeMappings <- matrix(c(
   "FRG","GER",
@@ -227,10 +221,11 @@ for (i in 1:nrow(countryCodeMappings)) {
 }
 plot_winpercentage(teamperf, 100)
 ```
+Let's plot the most commun score in our dataset and the most common score in the World Cup games.
 ```{r}
 # what is the occurence frequency for match scores?
 
-scorefreq <- matches %>%
+scorefreq <- matches %>% filter(grepl("FIFA World Cup",CupName)) %>%
   group_by(team1Score, team2Score) %>%
   summarise(
     n = n(),
@@ -249,7 +244,7 @@ scorefreq <- matches %>%
 
 ```{r}
 # distribution of goals scored per match
-gsfreq <- matches %>%
+gsfreq <- matches %>% filter(grepl("FIFA World Cup",CupName)) %>%
   group_by(gs = team1Score + team2Score) %>%
   summarise(
     n = n(),
@@ -267,7 +262,7 @@ gsfreq %>%
 
 ```{r}
 # distribution of goal differential
-gdfreq <- matches %>%
+gdfreq <- matches %>% filter(grepl("FIFA World Cup",CupName)) %>%
   group_by(gd = team1Score - team2Score) %>%
   summarise(
     n = n(),
@@ -317,16 +312,15 @@ We'll look at the previous N games a team has played, up to the game in question
 
 For example, taking N=10:
 
-last10games_w_per = (number of wins in the past 10 games) / 10
-last10games_d_per = (number of draws in the past 10 games) / 10
-last10games_l_per = (number of losses in the past 10 games) / 10
-last10games_gd_per = (goals scored - goals conceeded in the past 10 games) / 10
+`last10games_w_per = (number of wins in the past 10 games) / 10`
+`last10games_d_per = (number of draws in the past 10 games) / 10`
+`last10games_l_per = (number of losses in the past 10 games) / 10`
+`last10games_gd_per = (goals scored - goals conceeded in the past 10 games) / 10`
 
-We'll use three different values for N (10, 30 and 50) to capture short-, medium-, and long-term form.
+We'll use three different values for N (10, 30 and 50) to capture short, medium, and long-term form.
 
 We'll calculate those values for every team and every game in our dataset.
 
-To model the strength of opposition faced, we'll use the same technique with respect to the opponentConfederationCoefficient values we introduced earlier.
 
 ```{r}
 # Let's calculate some lag features for each team which is about to play a game
@@ -493,9 +487,7 @@ plot(abs_error, main="Mean Absolute Error")
 ```{r}
 qualified <- read_csv("wc2018qualified.csv")
 ```
-For performance reasons, we could generate all the the possible two-team combinations, then ask the model for predictions for each combination, and then store those predictions.
-
-We can store the mean values, as well as the standard deviation of the predicted values from every one of our decision trees. This will allow us to simulate a more realistic distribution of results, for multiple iterations of the same match.
+We will generate all the the possible two-team combinations, then ask the model for predictions for each combination, and then store those predictions.We can store the mean values, as well as the standard deviation of the predicted values from every one of our decision trees. This will allow us to simulate a more realistic distribution of results, for multiple iterations of the same match.
 
 ```{r}
 # get a list of possible matches to be played at the world cup
@@ -588,8 +580,8 @@ We can use the mean and standard deviation values to pick an individual outcome 
 For instance, let's assume we need to provide predicted outcomes for a Brazil vs Argentina match.
 
 ```{r}
-teamA <- "GER"
-teamB <- "FRA"
+teamA <- "BRA"
+teamB <- "TUN"
 temp <- data.staticpred %>% dplyr::filter(team1 == teamA & team2 == teamB)
 if(nrow(temp) == 0){
   tempTeam <- teamA
