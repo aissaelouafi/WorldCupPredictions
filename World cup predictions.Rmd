@@ -1,6 +1,8 @@
 ---
 title: "World Cup 2018 matchs predictions"
-output: html_notebook
+output:
+  html_notebook: default
+  html_document: default
 ---
 
 
@@ -18,8 +20,12 @@ library(corrplot)
 library(Metrics)
 library(vcd)
 ```
-
-
+#Machine learning process 
+![Machine learning process](/Users/aissaelouafi/Desktop/datascience_process.jpg)
+#The objective 
+The ovjective is given a match between to team be able to predict the goal difference between the two teams at the end of the match. We will try to predict the `outcome` target. Let's note that the `outcome` value can be zero (for draws), positive (whenever team1 wins) but also negative (whenever team2 wins the match).
+![Machine learning process](/Users/aissaelouafi/Desktop/goaldiff.png)
+#Upload data 
 ```{r}
 matches_data <- read_csv("./matches.csv")
 teams <- read_csv("./teams.csv")
@@ -461,6 +467,10 @@ nrow(data.test1)
 model.randomForest1 <- randomForest::randomForest(trainformula, data = data.train1, 
                                                   importance = TRUE, ntree = 500)
 
+model.randomForestFinal <- randomForest::randomForest(trainformula, data = rbind(data.train1,data.test1), 
+                                                  importance = TRUE, ntree = 500)
+
+
 summary(model.randomForest1)
 ```
 
@@ -552,7 +562,7 @@ head(data.topredict)
 ```
 ```{r}
 # ask the model to predict our world cup matches
-data.predicted <- predict(model.randomForest1, data.topredict, predict.all = TRUE)
+data.predicted <- predict(model.randomForestFinal, data.topredict, predict.all = TRUE)
 head(data.predicted)
 ```
 So, for every game in our input dataset, we've got the individual predictions from every one of our 500 decision trees, as well as the mean value of those predictions.
@@ -580,8 +590,8 @@ We can use the mean and standard deviation values to pick an individual outcome 
 For instance, let's assume we need to provide predicted outcomes for a Brazil vs Argentina match.
 
 ```{r}
-teamA <- "BRA"
-teamB <- "TUN"
+teamA <- "GER"
+teamB <- "FRA"
 temp <- data.staticpred %>% dplyr::filter(team1 == teamA & team2 == teamB)
 if(nrow(temp) == 0){
   tempTeam <- teamA
@@ -592,9 +602,10 @@ if(nrow(temp) == 0){
 temp
 ```
 
+
 ```{r}
 set.seed(4342)
-draw_threshold <- 0.4475
+draw_threshold <- 0.5575
 
 temp2 <- rnorm(100, temp$outcome, temp$sd)
 temp2
@@ -608,4 +619,61 @@ mtext(c(teamB,"Draw",teamA),side=2,line=-3,at=c(-3,0,3),col= "red")
 paste(teamA," won", length(temp2[temp2 > +draw_threshold]), "matches.")
 paste(teamB," won", length(temp2[temp2 < -draw_threshold]), "matches.")
 paste(length(temp2[temp2 >= -draw_threshold & temp2 <= +draw_threshold]), "matches drawn.")
+```
+```{r}
+predict_win <- function(team1,team2,draw_threshold=0.4475) {
+  teamA <- team1
+  teamB <- team2
+  temp <- data.staticpred %>% dplyr::filter(team1 == teamA & team2 == teamB)
+  if(nrow(temp) == 0){
+    tempTeam <- teamA
+    teamA <- teamB 
+    teamB <- tempTeam
+    temp <- data.staticpred %>% dplyr::filter(team1 == teamA & team2 == teamB)
+  }
+  set.seed(4342)
+
+  temp2 <- rnorm(100, temp$outcome, temp$sd)
+  l <- list(teamA,teamB,length(temp2[temp2 < -draw_threshold]),length(temp2[temp2 > +draw_threshold]),length(temp2[temp2 >= -draw_threshold & temp2 <= +draw_threshold]))
+  #print(paste(teamA," won", length(temp2[temp2 > +draw_threshold]), "matches."))
+  #print(paste(teamB," won", length(temp2[temp2 < -draw_threshold]), "matches."))
+  #print(paste(length(temp2[temp2 >= -draw_threshold & temp2 <= +draw_threshold]), "matches drawn."))
+  return(l)
+}
+```
+
+```{r}
+equipe <- data.staticpred[,c("team1","team2")]
+for(row in 1:nrow(equipe)){
+  l <- predict_win(equipe[row,"team1"],equipe[row,"team2"])
+  results[row,"teamA"] <-  l[1]
+  results[row,"teamB"] <-  l[2]
+  results[row,"teamA_win"] <- l[4]
+  results[row,"teamB_win"] <- l[3]
+  results[row,"draw"] <- l[5]
+}
+```
+
+#Find a draw treshold 
+In order to find a draw treshold we used the gris search method to find the treshold that maximize our performance, in our case the treshold that minimize the mean absolute error
+
+
+```{r}
+mae_vector <- c()
+threshold_seq <- seq(from=0, to = 1, by = 0.01)
+for(threshold in threshold_seq){
+  temp_data <- as.vector(data.pred.randomForest1$aggregate)
+  temp_data <- with(data.frame(x = temp_data), replace(x, temp_data >= -threshold & temp_data <= threshold, 0))
+  metrics.randomForest1.mae <- Metrics::mae(data.test1$outcome, temp_data)
+  mae_vector <- c(mae_vector,metrics.randomForest1.mae)
+}
+
+best_treshold_index <- which.min(mae_vector)
+best_threshold <- threshold_seq[best_treshold_index]
+sprintf("The best threshold is : %f",best_threshold)
+```
+```{r}
+df <- data.frame(threshold = threshold_seq, mae = mae_vector)
+p <- ggplot(data=df, aes(x=threshold, y=mae)) + geom_point()
+p
 ```
