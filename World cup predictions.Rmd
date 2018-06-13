@@ -20,12 +20,20 @@ library(corrplot)
 library(Metrics)
 library(vcd)
 ```
-#Machine learning process 
+
+#Machine learning process
+
 ![Machine learning process](/Users/aissaelouafi/Desktop/datascience_process.jpg)
+
 #The objective 
+
 The ovjective is given a match between to team be able to predict the goal difference between the two teams at the end of the match. We will try to predict the `outcome` target. Let's note that the `outcome` value can be zero (for draws), positive (whenever team1 wins) but also negative (whenever team2 wins the match).
+
 ![Machine learning process](/Users/aissaelouafi/Desktop/goaldiff.png)
+
+
 #Upload data 
+
 ```{r}
 matches_data <- read_csv("./matches.csv")
 teams <- read_csv("./teams.csv")
